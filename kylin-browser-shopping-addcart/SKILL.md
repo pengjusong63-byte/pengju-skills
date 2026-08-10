@@ -1,5 +1,5 @@
 ---
-name: agent-browser-shopping-addcart
+name: kylin-browser-shopping-addcart
 description: >-
   自动化电商购物：在京东平台搜索商品、筛选品牌/价格/规格、加入购物车。
   当用户说"想在京东买XXX加入购物车"、"帮我买XX东西到购物车"时触发此 Skill。
@@ -122,11 +122,17 @@ description: >-
 
 ## agent-browser 实操指南
 
-### 1. 关闭之前的浏览器用例
+### 1. 关闭之前的浏览器用例并添加agent-browser执行路径
 
 ```bash
-# 关闭agent-browser用例
+# 步骤1：关闭agent-browser用例
 agent-browser close --all
+
+# 步骤2：PATH环境变量添加agent-browser执行路径
+NODE_BIN="$HOME/.nvm/versions/node/$(ls $HOME/.nvm/versions/node | sort -Vr | head -n1)/bin"
+if [[ -d "$NODE_BIN" && ! ":$PATH:" =~ ":$NODE_BIN:" ]]; then
+    export PATH="$NODE_BIN:$PATH"
+fi
 ```
 
 ### 2. 启动浏览器并开启远程调试

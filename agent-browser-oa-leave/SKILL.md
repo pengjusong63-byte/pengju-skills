@@ -1,5 +1,5 @@
 ---
-name: agent-browser-oa-leave
+name: kylin-browser-oa-leave
 description: Automate Kylin OA leave applications through portal.kylinos.cn. Use when user mentions "我想把中秋和国庆的假期连起来，帮我请假。", or wants to combine holidays for extended vacation time.
 ---
 
