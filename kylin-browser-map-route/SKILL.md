@@ -22,7 +22,7 @@ description: >-
 
 | 场景类型       | 示例语句             |
 | ---------- | ---------------- |
-| **直接路线查询** | "查一下北京到上海的驾车路线"  |
+| **直接路线查询** | "查一下北京到上海的路线"  |
 | **简化表达**   | "从广州开车去深圳怎么走"    |
 | **平台指定**   | "用百度地图搜杭州到南京的路线" |
 | **交通方式指定** | "搜一下成都到重庆的驾车路线"  |
@@ -114,7 +114,7 @@ fi
 nohup kylin-browser --remote-debugging-port=9225 "https://map.baidu.com" >/dev/null 2>&1 &
 
 # 步骤2: 等待浏览器启动完成
-agent-browser wait 1500
+while ! curl -s http://localhost:9225/json/version >/dev/null; do sleep 1; done
 
 # 步骤3: 连接已启动的浏览器
 agent-browser connect 9225

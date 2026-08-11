@@ -15,7 +15,7 @@ description: >-
 - 根据条件筛选商品（品牌、价格、规格等）
 - 选择合适的商品 SKU
 - 将商品加入购物车
-- 点击购物车 （兼容淘宝）
+- 点击购物车
 
 ## 触发场景
 
@@ -26,7 +26,6 @@ description: >-
 | **直接购物需求** | "想在京东上买惠普 U盘 64G 100块左右加入到购物车" |
 | **简化表达** | "帮我买iphone 16手机加入购物车" |
 | **平台指定** | "京东买 Nike 鞋子 42码" |
-| **工具指定** | "用 agent-browser 在京东买 XX" |
 
 **触发关键词**：`买`、`购物`、`加入购物车`、`京东`、`自动化购物`
 
@@ -61,6 +60,7 @@ description: >-
 - 如果指定规格缺货，请选择相近的可用规格
 - 如果价格超出范围，请停止操作并告知用户
 - 操作完成后报告商品名称、最终价格、所选规格
+- 当前仅支持京东，如果用户用淘宝、天猫等网站，提示用户本skill不支持
 ```
 
 ### 京东示例
@@ -146,7 +146,7 @@ nohup kylin-browser --remote-debugging-port=9224 "https://www.jd.com" >/dev/null
 
 ```bash
 # 等待页面加载完毕并连接到已启动的浏览器
-sleep 5 && agent-browser connect 9224
+while ! curl -s http://localhost:9224/json/version >/dev/null; do sleep 1; done && agent-browser connect 9224
 ```
 
 ### 4. 执行自动化操作
@@ -235,7 +235,7 @@ agent-browser click @e59
 
 ```
 
-#### 点击购物车(兼容淘宝)
+#### 点击购物车
 
 ```bash
 # 步骤1: 查找购物车按钮

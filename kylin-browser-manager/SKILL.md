@@ -109,7 +109,7 @@ fi
 # 步骤1：设置自定义浏览器环境变量为kylin-browser和headed模式
 export AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/kylin-browser && export AGENT_BROWSER_HEADED=true
 
-# 步骤2: 打开浏览器(如果浏览器启动失败，可能是之前浏览器实例影响agent-browser close --all)
+# 步骤2: 打开浏览器
 agent-browser open
 ```
 
