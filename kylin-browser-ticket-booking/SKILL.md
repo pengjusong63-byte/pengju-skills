@@ -2,7 +2,7 @@
 name: kylin-browser-ticket-booking
 description: >-
   自动化订票：在携程官网完成订票操作。
-  当用户说"订明天下午2点从北京到上海的高铁二等座"、"订8月15日下午1点从广州到长沙的火车票硬卧"时触发此 Skill。
+  当用户说"订明天下午2点从北京到上海的高铁二等座"、"订8月15日中午12点从广州到长沙的高铁一等座"时触发此 Skill。
   关键词： 订票、买票、购票、抢票、携程、高铁、火车。
 ---
 
@@ -29,7 +29,7 @@ description: >-
 | 场景类型 | 示例语句 |
 |---------|---------|
 | **直接查询需求** | "买明天下午2点从北京到上海的高铁二等座" |
-| **指定出发时间** | "订8月15日下午1点从广州到长沙的火车票硬卧" |
+| **指定出发时间** | "订8月15日中午12点从广州到长沙的高铁一等座" |
 | **抢票需求** | "抢后天下午3点从上海到杭州的高铁票二等座" |
 
 **触发关键词**：`订票`、`买票`、`购票`、`抢票`、`携程`、`高铁`、`火车`
@@ -108,11 +108,11 @@ description: >-
 
 ## agent-browser 实操指南
 
-### 1. 关闭之前的浏览器用例并添加agent-browser执行路径
+### 1. 关闭之前的浏览器用例并添加agent-browser执行路径并关闭浏览器进程
 
 ```bash
 # 步骤1：关闭agent-browser用例
-agent-browser close --all
+agent-browser close --all && pkill -f kybrowser
 
 # 步骤2：PATH环境变量添加agent-browser执行路径
 NODE_BIN="$HOME/.nvm/versions/node/$(ls $HOME/.nvm/versions/node | sort -Vr | head -n1)/bin"
@@ -143,24 +143,30 @@ while ! curl -s http://localhost:9228/json/version >/dev/null; do sleep 1; done 
 
 ```bash
 # 步骤1: 查找出发城市并点击选择
-agent-browser snapshot -i | grep "出发城市" && agent-browser click @<ref1>
+agent-browser snapshot -i | grep "出发城市" && agent-browser click @出发城市ref
 
 # 步骤2: 选择北京城市
-agent-browser snapshot -i | grep "北京" && agent-browser click @<ref2>
+agent-browser snapshot -i | grep "北京" && agent-browser click @出发地ref
 ```
 
 #### 输入目的地
 
 ```bash
 # 步骤1: 选择上海城市
-agent-browser snapshot -i | grep "上海" && agent-browser click @<ref3>
+agent-browser snapshot -i | grep "上海" && agent-browser click @目的地ref
 ```
 
 #### 选择出发日期
 
 ```bash
-# 步骤1: 查询出发日期根据用户需求选择
-agent-browser snapshot -i | grep -A14 "今天" && agent-browser click @<ref4>
+# 步骤1: 获取完整页面快照，查找用户需要的出发日期
+agent-browser snapshot -i
+
+# 步骤2: 从完整快照中找到目标日期对应的真实 @ref 后再点击
+agent-browser click @实际日期ref
+
+# 步骤3: 点击后重新获取快照，确认日期已选中或页面已更新
+agent-browser snapshot -i
 ```
 
 #### 点击搜索按钮
@@ -170,7 +176,7 @@ agent-browser snapshot -i | grep -A14 "今天" && agent-browser click @<ref4>
 agent-browser snapshot -i | grep "搜索"
 
 # 步骤2: 点击搜索按钮
-agent-browser click @<ref6>
+agent-browser click @搜索ref
 ```
 
 #### 选择车次类型(高铁/动车/普通)
@@ -179,37 +185,53 @@ agent-browser click @<ref6>
 # 步骤1: 查询车次类型
 agent-browser snapshot -i | grep -A5 "车型"
 
-# 步骤2: 如果提示词中包含"高铁"，勾选"高铁"、包含"动车"，勾选"动车"、包含"火车"，勾选"普通"
-agent-browser click @<ref5>
+# 步骤2: 先查看车型是否勾选，如果没有勾选提示词中包含"高铁"，勾选"高铁"、包含"动车"，勾选"动车"、包含"火车"，勾选"普通"
+agent-browser click @车型ref
 ```
 
 #### 筛选出发时间（根据用户需求选择）
 
 ```bash
-# 步骤1: 查找出发时间（显示5行：重制，00:00 -06:00，06:00 -12:00，12:00 -18:00，18:00 -24:00）
-agent-browser snapshot -i | grep -A5 "出发时间"
+# 步骤1: 获取完整页面快照，查找出发时间筛选项
+agent-browser snapshot -i
 
 # 步骤2: 根据用户需求选择出发时间点击（例如：下午2点（14：00），则点击12:00 -18:00行）
-agent-browser click @<ref7>
+# 必须把 @真实ref 替换为当前快照中对应时间筛选项的真实引用，不能原样执行占位文本
+agent-browser click @真实ref
 
-# 步骤3: 点击对应时间“订”按钮
-agent-browser click @<ref8>
+# 步骤3: 页面筛选后重新获取完整快照，先定位目标车次区域
+agent-browser snapshot -i
+
+# 步骤4: 在完整快照中确认目标车次号、出发时间、出发站、到达站都匹配用户需求
+# 例如：G19、14:00、北京南、上海虹桥。不要点击页面中的第一个“订”或“预订”按钮
+# 如果目标车次区域内存在展开/订票按钮，点击该车次同一区域右侧的真实按钮 ref
+agent-browser click @真实ref
+
+# 步骤5: 点击后重新获取快照，确认是否展开了该车次的座位列表、出现登录弹窗、或进入下一页
+agent-browser snapshot -i
 ```
 
 #### 选座并预订（根据用户需求选择座位类型）
 
 ```bash
-# 步骤1: 查找预订按钮
-agent-browser snapshot -i | grep -A5 "14:00" 
+# 步骤1: 获取完整页面快照，查找目标车次下目标座位类型对应的“预订”按钮
+agent-browser snapshot -i
 
-# 步骤2: 根据用户需求选择座位类型点击(如：二等座，则点击对应行的"预订"按钮)
-# 当页面出现"乘客信息"就可以告知用户订票结束,请用户填写乘客信息支付订票
-agent-browser click @<ref9>
+# 步骤2: 只在目标车次区域内查找目标座位类型（如二等座）所在行
+# 点击该座位类型同一行/同一区域内的“预订”按钮，不要点击页面中其他车次或其他座位类型的“预订”
+# 必须把 @真实ref 替换为当前快照中目标按钮的真实引用；如果快照中“预订”文字和按钮容器有多个 ref，优先点击可点击按钮容器的 ref
+agent-browser click @真实ref
+
+# 步骤3: 点击后重新获取快照；如果页面出现“乘客信息”，告知用户订票结束，请用户填写乘客信息并支付订票
+agent-browser snapshot -i
+
+# 步骤4: 如果页面仍停留在搜索结果页且没有登录弹窗、乘客信息或 URL 变化，说明刚才点击未生效
+# 不要反复点击同一个 ref，应重新获取完整快照，查找目标座位行内的按钮父级 ref 或另一个可点击 ref 后再点击
 ```
 
 ### 异常处理
-- `执行自动化操作以上的@<refn>`：根据snapshot获取的实际情况获取而定。
+- `执行自动化操作以上的@XXXref`：根据snapshot获取的实际情况获取而定。
 - `网络加载失败`：让用户检查网络连接，确保浏览器可以访问互联网。
 - `元素未找到`：检查元素是否在页面上可见，是否被其他元素遮挡。
-- `点击失败`：检查元素是否可点击(`agent-browser click @<refn>`)，是否被其他元素遮挡，如果为文本框，可以使用`agent-browser fill`命令输入内容,然后选择下拉框点击对应选项。
+- `点击失败`：检查元素是否可点击(`agent-browser click @ref`)，是否被其他元素遮挡，如果为文本框，可以使用`agent-browser fill`命令输入内容,然后选择下拉框点击对应选项。
 - `输入失败`：检查输入内容是否正确，是否被其他元素遮挡。
