@@ -102,7 +102,7 @@ main() {
       ;;
 
     close)
-      pkill -f "kylin-browser" 2>/dev/null || true
+      pkill -f "kybrowser" 2>/dev/null || true
       json_success "close" "已关闭麒麟浏览器"
       exit 0
       ;;

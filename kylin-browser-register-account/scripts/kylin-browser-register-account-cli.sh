@@ -1,30 +1,28 @@
 #!/usr/bin/env bash
 set -u
 
-PROG="kylin-browser-ticket-booking-cli"
+PROG="kylin-browser-register-cli"
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 usage() {
   cat >&2 <<EOF
-${PROG}: 携程订票自动化 CLI 封装
+${PROG}: 外部网站注册 CLI 封装
 
 用法:
   bash scripts/${PROG}.sh <子命令> [参数...] [--json]
 
 子命令:
-  open-train <platform>            打开麒麟浏览器并导航到指定订票平台
-  snapshot                         获取页面快照
-  snapshot-interactive             获取可交互元素快照
-  snapshot-grep <pattern> [ctx]    获取可交互元素快照并用 grep 过滤上下文（默认5行）
-  click <ref>                      点击页面元素
-  fill <ref> <text>                在文本框中输入文本
-  press <key>                      模拟按键
-  eval <js_code>                   执行 JavaScript 并返回结果
-  scroll <direction> <pixels>      滚动页面
-  tab-new <url>                    在新标签页中打开链接
-  tab-list                         列出所有标签页
-  tab-switch <index>               切换到指定标签页
-  close                            关闭麒麟浏览器
+  open-url <url>                        打开麒麟浏览器并导航到指定 URL
+  snapshot                              获取页面快照
+  snapshot-interactive                  获取可交互元素快照
+  click <ref>                           点击页面元素
+  fill <ref> <text>                     在文本框中输入文本
+  press <key>                           模拟按键
+  select <ref> <option>                 在下拉框中选择选项
+  scroll <x> <y>                        滚动页面到指定位置
+  tab <index>                           切换到指定标签页
+  tab-list                              列出所有标签页
+  close                                 关闭麒麟浏览器
 
 选项:
   --json        输出单行 JSON（Agent 调用时必须使用）
@@ -42,11 +40,11 @@ ${PROG}: 携程订票自动化 CLI 封装
   10 dry-run 通过
 
 示例:
-  bash scripts/${PROG}.sh open-train ctrip --json
-  bash scripts/${PROG}.sh snapshot-interactive --json
+  bash scripts/${PROG}.sh open-url "https://passport.baidu.com/v2/?reg" --json
+  bash scripts/${PROG}.sh snapshot --json
   bash scripts/${PROG}.sh click @123 --json
-  bash scripts/${PROG}.sh fill @456 "北京" --json
-  bash scripts/${PROG}.sh close --json
+  bash scripts/${PROG}.sh fill @456 "13800138000" --json
+  bash scripts/${PROG}.sh press Enter --json
 EOF
 }
 
@@ -87,6 +85,7 @@ setup_env() {
   if [[ -d "$NODE_BIN" && ! ":$PATH:" =~ ":$NODE_BIN:" ]]; then
     export PATH="$NODE_BIN:$PATH"
   fi
+  export DISPLAY=:0
 }
 
 check_agent_browser() {
@@ -96,49 +95,22 @@ check_agent_browser() {
   fi
 }
 
-REMOTE_DEBUG_PORT=9228
+REMOTE_DEBUG_PORT=9229
 
 AGENT_OUTPUT=""
 AGENT_CODE=0
 
 run_agent() {
-  local timeout_seconds="${1:-45}"
-  shift
-
   local tmp
-  tmp=$(mktemp "${TMPDIR:-/tmp}/kylin-browser-ticket-booking-cli.XXXXXX")
-
-  if command -v timeout >/dev/null 2>&1; then
-    timeout "${timeout_seconds}" agent-browser "$@" >"$tmp" 2>&1
-  else
-    agent-browser "$@" >"$tmp" 2>&1
-  fi
-
+  tmp=$(mktemp "${TMPDIR:-/tmp}/kylin-browser-register-cli.XXXXXX")
+  agent-browser "$@" >"$tmp" 2>&1
   AGENT_CODE=$?
   AGENT_OUTPUT=$(cat "$tmp" 2>/dev/null)
   rm -f "$tmp"
-
-  # 超时退出码 124，转成流程可重试的错误（不误导 agent 去检查浏览器）
-  if [[ $AGENT_CODE -eq 124 ]]; then
-    AGENT_CODE=1
-    AGENT_OUTPUT="agent-browser 命令执行超时（${timeout_seconds}秒），页面可能仍在加载或元素过多，请稍后重试"
-  fi
-}
-
-get_train_url() {
-  local platform="$1"
-  case "$platform" in
-    ctrip|携程)
-      echo "https://trains.ctrip.com/"
-      ;;
-    *)
-      echo "https://trains.ctrip.com/"
-      ;;
-  esac
 }
 
 browser_start_with_remote_debug() {
-  local url="${1:-https://trains.ctrip.com}"
+  local url="${1:-https://example.com}"
 
   # 关闭旧的 agent-browser 会话和麒麟浏览器
   (agent-browser close --all >/dev/null 2>&1 && pkill -f kybrowser) || true
@@ -155,16 +127,16 @@ browser_start_with_remote_debug() {
     sleep 1
     wait_seconds=$((wait_seconds + 1))
     if [[ $wait_seconds -ge 15 ]]; then
-      json_error "browser_timeout" "打开订票平台失败" "浏览器启动超时（15秒），请检查图形会话是否可用" "true"
+      json_error "browser_timeout" "打开页面失败" "浏览器启动超时（15秒），请检查图形会话是否可用" "true"
       exit 1
     fi
   done
 
   # 连接已启动的浏览器
-  run_agent 15 connect "${REMOTE_DEBUG_PORT}"
+  run_agent connect "${REMOTE_DEBUG_PORT}"
   if [[ $AGENT_CODE -ne 0 ]]; then
     json_error "browser_connect_failed" "连接浏览器失败" "${AGENT_OUTPUT:-agent-browser 连接失败，请检查远程调试端口}" "true"
-    exit 1
+    exit $AGENT_CODE
   fi
 }
 
@@ -221,25 +193,25 @@ main() {
     esac
   done
 
+  # 设置 JSON 输出模式
   [[ "$format" == "json" ]] && use_json=true
 
   setup_env
   check_agent_browser
 
   case "$action" in
-    open-train)
-      local platform="ctrip"
-      if [[ ${#args[@]} -ge 1 ]]; then
-        platform="${args[0]}"
+    open-url)
+      if [[ ${#args[@]} -eq 0 ]]; then
+        json_error "missing_argument" "缺少参数 url" "用法: bash scripts/${PROG}.sh open-url <url> --json" "false"
+        exit 2
       fi
+      local url="${args[0]}"
       if $dry_run; then
-        dry_run_msg "open-train" "将启动麒麟浏览器（远程调试端口 ${REMOTE_DEBUG_PORT}）并导航到 ${platform}"
+        dry_run_msg "open-url" "将启动麒麟浏览器（远程调试端口 ${REMOTE_DEBUG_PORT}）并导航到 ${url}"
         exit 10
       fi
-      local train_url
-      train_url=$(get_train_url "$platform")
-      browser_start_with_remote_debug "$train_url"
-      json_success "open-train" "已启动麒麟浏览器（远程调试端口 ${REMOTE_DEBUG_PORT}）并导航到 ${platform}"
+      browser_start_with_remote_debug "$url"
+      json_success "open-url" "已启动麒麟浏览器（远程调试端口 ${REMOTE_DEBUG_PORT}）并导航到 ${url}"
       exit 0
       ;;
 
@@ -248,7 +220,7 @@ main() {
         dry_run_msg "snapshot" "将获取当前页面快照"
         exit 10
       fi
-      run_agent 60 snapshot
+      run_agent snapshot
       if [[ $AGENT_CODE -eq 0 ]]; then
         json_success "snapshot" "$AGENT_OUTPUT"
       else
@@ -263,36 +235,9 @@ main() {
         dry_run_msg "snapshot-interactive" "将获取当前页面可交互元素快照"
         exit 10
       fi
-      run_agent 90 snapshot -i
+      run_agent snapshot -i
       if [[ $AGENT_CODE -eq 0 ]]; then
         json_success "snapshot-interactive" "$AGENT_OUTPUT"
-      else
-        json_error "snapshot_failed" "获取可交互元素快照失败" "${AGENT_OUTPUT:-agent-browser 返回错误}" "true"
-        exit 1
-      fi
-      exit $AGENT_CODE
-      ;;
-
-    snapshot-grep)
-      if [[ ${#args[@]} -eq 0 ]]; then
-        json_error "missing_argument" "缺少参数 pattern" "用法: bash scripts/${PROG}.sh snapshot-grep <pattern> [context_lines] --json" "false"
-        exit 2
-      fi
-      local pattern="${args[0]}"
-      local context="${args[1]:-15}"
-      if $dry_run; then
-        dry_run_msg "snapshot-grep" "将获取可交互元素快照并过滤: ${pattern}"
-        exit 10
-      fi
-      run_agent 90 snapshot -i
-      if [[ $AGENT_CODE -eq 0 ]]; then
-        local filtered
-        filtered=$(echo "$AGENT_OUTPUT" | grep -E -A "$context" "$pattern" || true)
-        if [[ -z "$filtered" ]]; then
-          json_error "no_match" "未找到匹配 '${pattern}' 的元素" "可尝试其他关键词" "true"
-          exit 3
-        fi
-        json_success "snapshot-grep" "$filtered"
       else
         json_error "snapshot_failed" "获取可交互元素快照失败" "${AGENT_OUTPUT:-agent-browser 返回错误}" "true"
         exit 1
@@ -311,7 +256,7 @@ main() {
         dry_run_msg "click" "将点击页面元素 ${ref}"
         exit 10
       fi
-      run_agent 30 click "$ref"
+      run_agent click "$ref"
       if [[ $AGENT_CODE -eq 0 ]]; then
         json_success "click" "已点击页面元素"
       else
@@ -333,7 +278,7 @@ main() {
         dry_run_msg "fill" "将在元素 ${ref} 中输入文本"
         exit 10
       fi
-      run_agent 30 fill "$ref" "$text"
+      run_agent fill "$ref" "$text"
       if [[ $AGENT_CODE -eq 0 ]]; then
         json_success "fill" "已填写文本框"
       else
@@ -352,7 +297,7 @@ main() {
         dry_run_msg "press" "将模拟按键 ${args[0]}"
         exit 10
       fi
-      run_agent 30 press "${args[0]}"
+      run_agent press "${args[0]}"
       if [[ $AGENT_CODE -eq 0 ]]; then
         json_success "press" "已模拟按键 ${args[0]}"
       else
@@ -362,21 +307,23 @@ main() {
       exit $AGENT_CODE
       ;;
 
-    eval)
-      if [[ ${#args[@]} -eq 0 ]]; then
-        json_error "missing_argument" "缺少参数 js_code" "用法: bash scripts/${PROG}.sh eval <js_code> --json" "false"
+    select)
+      if [[ ${#args[@]} -lt 2 ]]; then
+        json_error "missing_argument" "缺少参数" "用法: bash scripts/${PROG}.sh select <ref> <option> --json" "false"
         exit 2
       fi
-      local js_code="${args[*]}"
+      local ref="${args[0]}"
+      [[ "$ref" != @* ]] && ref="@$ref"
+      local option="${args[*]:1}"
       if $dry_run; then
-        dry_run_msg "eval" "将执行 JavaScript 代码"
+        dry_run_msg "select" "将在下拉框 ${ref} 中选择 ${option}"
         exit 10
       fi
-      run_agent 30 eval "$js_code"
+      run_agent select "$ref" "$option"
       if [[ $AGENT_CODE -eq 0 ]]; then
-        json_success "eval" "$AGENT_OUTPUT"
+        json_success "select" "已选择下拉框选项"
       else
-        json_error "eval_failed" "执行 JavaScript 失败" "${AGENT_OUTPUT:-agent-browser 返回错误}" "true"
+        json_error "select_failed" "选择下拉框选项失败" "${AGENT_OUTPUT:-agent-browser 返回错误}" "true"
         exit 1
       fi
       exit $AGENT_CODE
@@ -384,18 +331,18 @@ main() {
 
     scroll)
       if [[ ${#args[@]} -lt 2 ]]; then
-        json_error "missing_argument" "缺少参数" "用法: bash scripts/${PROG}.sh scroll <direction> <pixels> --json" "false"
+        json_error "missing_argument" "缺少参数" "用法: bash scripts/${PROG}.sh scroll <x> <y> --json" "false"
         exit 2
       fi
-      local direction="${args[0]}"
-      local pixels="${args[1]}"
+      local x="${args[0]}"
+      local y="${args[1]}"
       if $dry_run; then
-        dry_run_msg "scroll" "将向 ${direction} 方向滚动 ${pixels} 像素"
+        dry_run_msg "scroll" "将滚动页面到 (${x}, ${y})"
         exit 10
       fi
-      run_agent 30 scroll "$direction" "$pixels"
+      run_agent scroll "$x" "$y"
       if [[ $AGENT_CODE -eq 0 ]]; then
-        json_success "scroll" "已向 ${direction} 方向滚动 ${pixels} 像素"
+        json_success "scroll" "已滚动页面"
       else
         json_error "scroll_failed" "滚动页面失败" "${AGENT_OUTPUT:-agent-browser 返回错误}" "true"
         exit 1
@@ -403,21 +350,21 @@ main() {
       exit $AGENT_CODE
       ;;
 
-    tab-new)
+    tab)
       if [[ ${#args[@]} -eq 0 ]]; then
-        json_error "missing_argument" "缺少参数 url" "用法: bash scripts/${PROG}.sh tab-new <url> --json" "false"
+        json_error "missing_argument" "缺少参数 index" "用法: bash scripts/${PROG}.sh tab <index> --json" "false"
         exit 2
       fi
-      local url="${args[0]}"
+      local tab_index="${args[0]}"
       if $dry_run; then
-        dry_run_msg "tab-new" "将在新标签页中打开: ${url}"
+        dry_run_msg "tab" "将切换到标签页 ${tab_index}"
         exit 10
       fi
-      run_agent 30 tab new "$url"
+      run_agent tab "$tab_index"
       if [[ $AGENT_CODE -eq 0 ]]; then
-        json_success "tab-new" "已在新标签页中打开: ${url}"
+        json_success "tab" "已切换到标签页 ${tab_index}"
       else
-        json_error "tab_new_failed" "打开新标签页失败" "${AGENT_OUTPUT:-agent-browser 返回错误}" "true"
+        json_error "tab_switch_failed" "切换标签页失败" "${AGENT_OUTPUT:-agent-browser 返回错误}" "true"
         exit 1
       fi
       exit $AGENT_CODE
@@ -428,31 +375,11 @@ main() {
         dry_run_msg "tab-list" "将列出所有标签页"
         exit 10
       fi
-      run_agent 30 tab list
+      run_agent tab list
       if [[ $AGENT_CODE -eq 0 ]]; then
         json_success "tab-list" "$AGENT_OUTPUT"
       else
-        json_error "tab_list_failed" "获取标签页列表失败" "${AGENT_OUTPUT:-agent-browser 返回错误}" "true"
-        exit 1
-      fi
-      exit $AGENT_CODE
-      ;;
-
-    tab-switch)
-      if [[ ${#args[@]} -eq 0 ]]; then
-        json_error "missing_argument" "缺少参数 index" "用法: bash scripts/${PROG}.sh tab-switch <index> --json" "false"
-        exit 2
-      fi
-      local index="${args[0]}"
-      if $dry_run; then
-        dry_run_msg "tab-switch" "将切换到标签页: ${index}"
-        exit 10
-      fi
-      run_agent 30 tab "$index"
-      if [[ $AGENT_CODE -eq 0 ]]; then
-        json_success "tab-switch" "已切换到标签页: ${index}"
-      else
-        json_error "tab_switch_failed" "切换标签页失败" "${AGENT_OUTPUT:-agent-browser 返回错误}" "true"
+        json_error "tab_list_failed" "列出标签页失败" "${AGENT_OUTPUT:-agent-browser 返回错误}" "true"
         exit 1
       fi
       exit $AGENT_CODE
@@ -463,7 +390,7 @@ main() {
         dry_run_msg "close" "将关闭麒麟浏览器及所有 agent-browser 会话"
         exit 10
       fi
-      run_agent 30 close --all
+      run_agent close --all
       if [[ $AGENT_CODE -eq 0 ]]; then
         json_success "close" "已关闭麒麟浏览器"
       else

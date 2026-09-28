@@ -29,26 +29,7 @@ names:
 
 ## 功能映射表
 
-| 用户意图（触发词） | 子命令 |
-|---|---|
-| 打开麒麟浏览器并导航到携程 | `open-train <platform>` |
-| 获取页面快照 | `snapshot` |
-| 获取可交互元素快照 | `snapshot-interactive` |
-| 点击页面元素 | `click <ref>` |
-| 在文本框中输入文本 | `fill <ref> <text>` |
-| 模拟按键 | `press <key>` |
-| 执行 JavaScript 提取信息 | `eval <js_code>` |
-| 滚动页面 | `scroll <direction> <pixels>` |
-| 在新标签页中打开链接 | `tab-new <url>` |
-| 列出所有标签页 | `tab-list` |
-| 切换到指定标签页 | `tab-switch <index>` |
-| 关闭麒麟浏览器 | `close` |
-
-调用方式（工作目录为 Skill 根目录）：
-
-```bash
-bash scripts/kylin-browser-ticket-booking-cli.sh <子命令> [参数] --json
-```
+所有操作通过 `bash scripts/kylin-browser-ticket-booking-cli.sh <子命令> [参数] --json` 调用（工作目录为 Skill 根目录），支持子命令：`open-train`、`snapshot`、`snapshot-interactive`、`snapshot-grep`、`click`、`fill`、`press`、`eval`、`scroll`、`tab-new`、`tab-list`、`tab-switch`、`close`。
 
 ## 使用场景
 
@@ -90,8 +71,11 @@ bash scripts/kylin-browser-ticket-booking-cli.sh <子命令> [参数] --json
 
 - 直接输出操作结果，包含车次信息、出发时间、座位类型、价格。
 - 禁止生成总结、摘要或格式化报告。
-- 输出任务用时 X 秒。
 - 最终页面出现"乘客信息"时，告知用户订票结束，请用户自行填写乘客信息并支付。
+
+## Agent 行为准则
+
+1. **记忆辅助**：流程开始前自动查询记忆中的订票偏好和历史行程（阶段零）；流程结束后自动保存本次订票关键结果到记忆。记忆仅用于减少重复输入，不影响单次订票的正确决策。
 
 ## 权限边界
 
@@ -102,6 +86,16 @@ bash scripts/kylin-browser-ticket-booking-cli.sh <子命令> [参数] --json
 - Agent 不得尝试自动填写密码、验证码或支付信息。
 
 ## 操作流程
+
+### 阶段零：查询记忆中的订票偏好
+
+##### 0.1 [自动] 查询用户订票常用信息
+
+调用 `memory_recall(query: "订票常用信息、常用出发地、目的地、座位偏好")`。若命中：
+- 自动记下已记录的偏好信息（如常用城市、座位类型偏好等），后续查询时优先作为默认值使用
+- 向用户说明已从记忆中获取到部分信息，请用户确认或修改
+
+若未命中，正常按输入说明向用户索要信息。
 
 ### 1. 打开携程火车票首页
 
@@ -143,60 +137,106 @@ bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-interactive --json
 4. 用户确认登录后，重新获取可交互元素快照确认登录状态
 5. 确认已登录后，继续执行后续步骤
 
-### 3. 输入出发地和目的地（注意：先清空默认值）
+### 3. 输入出发地和目的地（推荐使用 eval）
 
-携程页面默认有"北京→上海"的预设值，必须先清空再填入新的城市，否则 `fill` 会追加到已有文本后面（如"北京上海"）。
+携程页面默认有"北京→上海"的预设值，必须先清空再填入新的城市。
 
-```bash
-# 获取可交互元素快照，找到出发城市输入框的 ref
-bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-interactive --json
+推荐使用 `eval` 子命令通过 JavaScript 直接设置输入框值，一步完成清空、填值、触发 React 事件和选择联想下拉项，无需依赖 `ref`。
 
-# 先点击出发城市输入框聚焦，再多次按 Delete 清空已有内容
-bash scripts/kylin-browser-ticket-booking-cli.sh click @<ref1> --json
-bash scripts/kylin-browser-ticket-booking-cli.sh press Delete --json
-bash scripts/kylin-browser-ticket-booking-cli.sh press Delete --json
-bash scripts/kylin-browser-ticket-booking-cli.sh press Delete --json
-bash scripts/kylin-browser-ticket-booking-cli.sh press Delete --json
-
-# 填入出发地（如"上海"）
-bash scripts/kylin-browser-ticket-booking-cli.sh fill @<ref1> "上海" --json
-```
-
-> 注意：携程页面在输入框中输入内容后可能会弹出城市选择下拉面板，属正常行为，无需关闭。如果下拉面板遮挡了其他操作，可先点击页面空白区域关闭面板。
+**参数化模板**：替换 `<city>` 为城市名，`<placeholder>` 为"出发"或"到达"：
 
 ```bash
-# 获取可交互元素快照，找到到达城市输入框的 ref
-bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-interactive --json
-
-# 同样先清空到达城市输入框，再填入目的地（如"杭州"）
-bash scripts/kylin-browser-ticket-booking-cli.sh click @<ref2> --json
-bash scripts/kylin-browser-ticket-booking-cli.sh press Delete --json
-bash scripts/kylin-browser-ticket-booking-cli.sh press Delete --json
-bash scripts/kylin-browser-ticket-booking-cli.sh press Delete --json
-bash scripts/kylin-browser-ticket-booking-cli.sh press Delete --json
-bash scripts/kylin-browser-ticket-booking-cli.sh fill @<ref2> "杭州" --json
+# 设置城市（替换 <city> 和 <placeholder>）
+bash scripts/kylin-browser-ticket-booking-cli.sh eval "
+  (() => {
+    const s = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    const input = ['input[placeholder*=\"<placeholder>\"]','input.origin-input','input.destination-input']
+      .map(sel => document.querySelector(sel)).find(el => el);
+    if (!input) return JSON.stringify({ok:false,error:'未找到输入框'});
+    s.call(input, ''); input.dispatchEvent(new Event('input', {bubbles:true}));
+    s.call(input, '<city>'); input.dispatchEvent(new Event('input', {bubbles:true}));
+    input.dispatchEvent(new Event('change', {bubbles:true}));
+    return new Promise(r => setTimeout(() => {
+      const item = document.querySelector('[class*=\"suggest\"] li,[class*=\"city\"] li,[class*=\"option\"]');
+      if (item) item.click();
+      r(JSON.stringify({ok:true,value:'<city>'}));
+    }, 1000));
+  })()
+" --json
 ```
 
-> 提示：如果城市选择下拉面板弹出遮挡了输入框，可以先点击页面空白区域或按 Escape 关闭面板，再继续操作。
+**示例**：
+- 设置出发城市"北京"：`<placeholder>` → `出发`，`<city>` → `北京`
+- 设置到达城市"上海"：`<placeholder>` → `到达`，`<city>` → `上海`
+
+**如果 `eval` 执行失败**（返回 `ok:false`），回退到 manual 方式（先对出发地执行一次，再对到达地执行一次）：
+
+```bash
+# 1. 获取可交互元素快照，找到输入框的 ref
+bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-interactive --json
+
+# 2. 聚焦输入框，用 eval 清空
+bash scripts/kylin-browser-ticket-booking-cli.sh click @<ref> --json
+bash scripts/kylin-browser-ticket-booking-cli.sh eval "
+  (() => {
+    const el = document.activeElement;
+    if (!el) return JSON.stringify({ok:false});
+    const s = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    s.call(el, ''); el.dispatchEvent(new Event('input', {bubbles:true}));
+    el.dispatchEvent(new Event('change', {bubbles:true}));
+    return JSON.stringify({ok:true});
+  })()
+" --json
+
+# 3. 填入城市名（替换 <city> 为实际城市）
+bash scripts/kylin-browser-ticket-booking-cli.sh fill @<ref> "<city>" --json
+```
+
+> 对出发地和到达地分别执行上述流程，第一次 `<city>` 替换为出发城市，第二次替换为到达城市。携程页面输入内容后可能弹出城市选择下拉面板，属正常行为，无需关闭。如果面板遮挡操作，可点击页面空白区域或按 Escape 关闭。
 
 ### 4. 选择出发日期
 
-```bash
-# 获取可交互元素快照，找到日期选择器
-bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-interactive --json
+**查找策略**：日期选择器常见特征：
+- `input[placeholder*="出发日期"]`、`input[placeholder*="日期"]`
+- 或带日期图标的输入框（旁边有日历图标）
 
-# 根据用户需求点击日期选择器，选择对应日期
-# 如果日期选择器是文本框，则使用 fill 填入日期
+**优先使用 eval 设置日期**（推荐，无需找 ref）：
+
+```bash
+# 设置出发日期（替换 <date> 为实际日期，如"2026-08-25"）
+bash scripts/kylin-browser-ticket-booking-cli.sh eval "
+  (() => {
+    const s = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    const input = ['input[placeholder*=\"出发日期\"]','input[placeholder*=\"日期\"]','input.date-input']
+      .map(sel => document.querySelector(sel)).find(el => el);
+    if (!input) return JSON.stringify({ok:false,error:'未找到日期输入框'});
+    s.call(input, ''); input.dispatchEvent(new Event('input', {bubbles:true}));
+    s.call(input, '<date>'); input.dispatchEvent(new Event('input', {bubbles:true}));
+    input.dispatchEvent(new Event('change', {bubbles:true}));
+    return JSON.stringify({ok:true,value:'<date>'});
+  })()
+" --json
+```
+
+**eval 失败时回退到 manual 方式**：
+
+```bash
+# 获取可交互元素快照，找到"今天"对应日期的 ref
+bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-grep "今天" --json
+
+# 点击日期选择器聚焦，如果日期选择器是文本框则 fill 填入日期
 bash scripts/kylin-browser-ticket-booking-cli.sh click @<ref> --json
 ```
 
 ### 5. 点击搜索按钮
 
-> **重要：携程首页有"只搜高铁动车"复选框，不得勾选。** 车次类型筛选（高铁/动车/普通）在搜索结果页的步骤 6.1 进行，不要在首页做任何筛选操作。
+**查找策略**：搜索按钮常见特征：
+- 文本包含"搜索"的按钮/链接（`button`、`a`、`div[class*="search"]` 等）
+- 页面中带有放大镜图标的可点击元素
 
 ```bash
 # 获取可交互元素快照，找到"搜索"按钮的 ref
-bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-interactive --json
+bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-grep "搜索" --json
 
 # 点击搜索按钮
 bash scripts/kylin-browser-ticket-booking-cli.sh click @<ref> --json
@@ -214,43 +254,76 @@ bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-interactive --json
 - **出现"网络异常"、"请登录"等提示** → 说明很可能未登录或登录已过期，回到步骤 2 引导登录
 - **页面空白或加载中** → 等待 2-3 秒后重新获取可交互元素快照，重复最多 2 次
 
+> **重要：必须先执行步骤 6.1 和 6.2 进行筛选，筛选完成后才能进入步骤 7 选择车次。禁止在未筛选的情况下直接滚动页面查找车次或直接点击"订"按钮。**
+
 #### 6.1 筛选车次类型
 
-如果用户指定了车次类型（高铁/动车/普通），需执行筛选操作：
+如果用户指定了车次类型（高铁/动车/普通），**必须执行**此筛选操作，不得跳过：
+
+**操作规则**：用 `snapshot-grep "车型"` 查看车型筛选区域，根据用户需求勾选对应的选项：
+- 用户要"高铁" → 勾选 `高铁(G/C)`（如果已勾选则保持）
+- 用户要"动车" → 勾选 `动车(D)`（如果已勾选则保持）
+- 用户要"普通" → 勾选 `普通(K/T/Z)`（如果已勾选则保持）
 
 ```bash
-# 获取可交互元素快照，找到车次类型筛选区域
-bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-interactive --json
+# 用 snapshot-grep 按 heading 关键词过滤，只返回"车型"区域附近的元素及 ref
+# 输出示例：
+#   - heading "车型" [level=4, ref=e111]
+#     - listitem "[object Object]高铁(G/C)" [level=1, ref=e227] clickable
+#     - listitem "[object Object]动车(D)" [level=1, ref=e228] clickable
+bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-grep "车型" --json
 
-# 点击对应的车次类型选项（如"高铁"）
+# 找到对应车次类型的 listitem 的 ref 后点击（如 ref=e227 对应"高铁(G/C)"）
 bash scripts/kylin-browser-ticket-booking-cli.sh click @<ref> --json
 ```
 
 #### 6.2 筛选出发时间
 
-如果用户指定了出发时间，需执行筛选操作：
+如果用户指定了出发时间，**必须执行**此筛选操作，不得跳过或通过滚动查找替代：
+
+**时间描述 → 筛选范围映射规则**（按此规则选择对应的时间段）：
+- "中午12点" / "12:00" / "12点" → 选择 `12:00 -14:00`（不要选 `12:00 -18:00`，范围太宽）
+- "下午2点" / "14:00" / "下午2点" → 选择 `12:00 -18:00`
+- "下午3点" / "15:00" → 选择 `12:00 -18:00`
+- "上午" / "早上" → 选择 `06:00 -12:00`
+- "下午" / "傍晚" → 选择 `12:00 -18:00`
+- "晚上" → 选择 `18:00 -24:00`
 
 ```bash
-# 获取可交互元素快照，找到出发时间筛选区域
-bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-interactive --json
+# 用 snapshot-grep 按 heading 关键词过滤，只返回"出发时间"区域附近的元素及 ref
+# 输出示例：
+#   - heading "出发时间" [level=4, ref=e113]
+#     - listitem "12:00 -14:00" [level=1, ref=e232] clickable    ← 优先选择这个
+#     - listitem "12:00 -18:00" [level=1, ref=e233] clickable
+#     - listitem "18:00 -24:00" [level=1, ref=e234] clickable
+bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-grep "出发时间" --json
 
-# 根据用户需求选择对应的时间段（如 12:00-18:00）
+# 找到对应时间段的 listitem 的 ref 后点击
 bash scripts/kylin-browser-ticket-booking-cli.sh click @<ref> --json
 ```
 
 ### 7. 点击"订"按钮选择车次（自动匹配，不反问）
 
+> **前置条件：必须已完成步骤 6.1、6.2，否则不得进入此步骤。**
+
 根据用户指定的条件自动匹配车次，**不得向用户列出多个选项让用户选择**。
 
 ```bash
-# 获取可交互元素快照，查看车次列表
+# 获取可交互元素快照，查看筛选后的车次列表
 bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-interactive --json
 ```
 
-**自动匹配规则**（按优先级）：
-1. 如果用户指定了出发时间（如"下午2点"→ 14:00），在筛选后的车次列表中，找到出发时间最接近用户指定时间的车次
-2. 如果用户没有指定出发时间，选择列表中的第一个车次
-3. 如果用户指定了车次类型（如"高铁"），已通过步骤 6.1 筛选，无需再判断
+**自动匹配规则**（严格按优先级，必须满足所有条件）：
+
+1. **车型一致性校验**：如果用户指定了车次类型（如"高铁"），从 `snapshot-interactive` 输出中确认车次号（如 G1234、D1234）与用户指定类型匹配：
+   - 用户要"高铁" → 只匹配 G/C 开头车次（如 G1234、C1234），**不得选择 D/K/T/Z 等非高铁车次**
+   - 用户要"动车" → 只匹配 D 开头车次
+   - 用户要"普通" → 只匹配 K/T/Z 等普速车次
+   - 如果筛选后的车次列表中没有匹配的车次，告知用户"没有符合条件的车次"，不得降级选择其他车型
+
+2. **出发时间匹配**：在符合车型要求的车次中，找到出发时间最接近用户指定时间的车次
+
+3. **选择车次**：直接点击匹配到的车次对应的"订"按钮，不询问用户
 
 ```bash
 # 直接点击匹配到的车次对应的"订"按钮，不询问用户
@@ -260,8 +333,8 @@ bash scripts/kylin-browser-ticket-booking-cli.sh click @<ref> --json
 ### 8. 选座并预订
 
 ```bash
-# 获取可交互元素快照，找到座位类型和"预订"按钮
-bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-interactive --json
+# 获取可交互元素快照，找到对应时间（如"14:00"）的"预订"按钮的 ref
+bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-grep "14:00" --json
 
 # 根据用户需求选择座位类型（如二等座），点击对应"预订"按钮
 bash scripts/kylin-browser-ticket-booking-cli.sh click @<ref> --json
@@ -276,6 +349,22 @@ bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-interactive --json
 
 当页面出现"乘客信息"时，说明订票成功，告知用户订票结束，请用户自行填写乘客信息并完成支付。
 
+### 10. [自动] 保存本次订票记录到记忆
+
+订票成功后，执行以下记忆保存：
+- 调用 `memory_recall(query: "订票记录、历史行程")`，查询是否已有同主题记忆
+- 若有 → 使用 file_edit 更新已有条目，追加本次行程明细
+- 若无 → 使用 file_write 创建新条目（type: user），再更新 MEMORY.md 索引
+
+记忆条目格式参考：
+```yaml
+name: "订票记录"
+description: "用户历史订票行程明细"
+type: "user"
+```
+
+保存信息包含：订票日期、出发地、目的地、出发时间、车次类型、座位类型、状态。
+
 ## 约束限制
 
 - 仅支持携程火车票（trains.ctrip.com），不支持 12306、飞猪、去哪儿等其他平台。
@@ -286,7 +375,7 @@ bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-interactive --json
 - 需要麒麟浏览器（kylin-browser）和 agent-browser 工具已安装。
 - 需要当前系统有可用的图形会话（X11/Wayland）。
 - 浏览器启动超时阈值为 15 秒。
-- 禁止在首页勾选"只搜高铁动车"等筛选选项，车次类型筛选统一在搜索结果页（步骤 6.1）进行。
+- 禁止在首页勾选"只搜高铁动车"等筛选选项，如果首页已勾选"只搜高铁动车"选项，需要先取消勾选，车次类型筛选统一在搜索结果页（步骤 6.1）进行。
 - 禁止生成总结、摘要或格式化报告，仅输出原始操作结果。
 - 因为携程页面结构可能导致 Agent 总结的信息与浏览器实际显示不一致，需引导用户确认订票信息。
 - 如果用户未指定座位类型，高铁默认选择二等座，火车默认选择硬座。
@@ -314,27 +403,22 @@ bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-interactive --json
 
 完整执行步骤：
 
-1. `bash scripts/kylin-browser-ticket-booking-cli.sh open-train ctrip --json`
-2. `bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-interactive --json` → 检测登录状态，若未登录则引导用户手动登录
-3. `bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-interactive --json` → 找到出发地/目的地输入框
-4. `bash scripts/kylin-browser-ticket-booking-cli.sh click @<ref1> --json` → 聚焦出发城市输入框
-5. `bash scripts/kylin-browser-ticket-booking-cli.sh press Delete --json`（重复 4 次）→ 清空默认值
-6. `bash scripts/kylin-browser-ticket-booking-cli.sh fill @<ref1> "北京" --json`
-7. `bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-interactive --json` → 找到到达城市输入框
-8. `bash scripts/kylin-browser-ticket-booking-cli.sh click @<ref2> --json` → 聚焦到达城市输入框
-9. `bash scripts/kylin-browser-ticket-booking-cli.sh press Delete --json`（重复 4 次）→ 清空默认值
-10. `bash scripts/kylin-browser-ticket-booking-cli.sh fill @<ref2> "上海" --json`
-11. `bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-interactive --json` → 找到日期选择器并选择"明天"
-12. `bash scripts/kylin-browser-ticket-booking-cli.sh click @<ref3> --json` → 选择日期
-13. `bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-interactive --json` → 找到搜索按钮
-14. `bash scripts/kylin-browser-ticket-booking-cli.sh click @<ref4> --json` → 点击搜索
-15. `bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-interactive --json` → 检查搜索结果是否正常
-16. `bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-interactive --json` → 筛选车次类型"高铁"
-17. `bash scripts/kylin-browser-ticket-booking-cli.sh click @<ref5> --json` → 勾选"高铁"
-18. `bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-interactive --json` → 筛选出发时间 12:00-18:00
-19. `bash scripts/kylin-browser-ticket-booking-cli.sh click @<ref6> --json` → 选择时间区间
-20. `bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-interactive --json` → 找到对应车次的"订"按钮
-21. `bash scripts/kylin-browser-ticket-booking-cli.sh click @<ref7> --json` → 点击"订"
-22. `bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-interactive --json` → 找到"二等座"的"预订"按钮
-23. `bash scripts/kylin-browser-ticket-booking-cli.sh click @<ref8> --json` → 点击"预订"
-24. `bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-interactive --json` → 确认是否出现"乘客信息"页面
+| # | 命令 | 说明 |
+|---|---|---|
+| 1 | `bash scripts/kylin-browser-ticket-booking-cli.sh open-train ctrip --json` | 打开携程火车票首页 |
+| 2 | `bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-interactive --json` | 检测登录状态，若未登录则引导用户手动登录 |
+| 3 | `bash scripts/kylin-browser-ticket-booking-cli.sh eval "..." --json` | 用 eval 设置出发城市"北京"（替换 `<placeholder>` 为"出发"，`<city>` 为"北京"） |
+| 4 | `bash scripts/kylin-browser-ticket-booking-cli.sh eval "..." --json` | 用 eval 设置到达城市"上海"（替换 `<placeholder>` 为"到达"，`<city>` 为"上海"） |
+| 5 | `bash scripts/kylin-browser-ticket-booking-cli.sh eval "..." --json` | 用 eval 设置出发日期为明天日期（如 `2026-09-29`，替换 `<date>`） |
+| 6 | `bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-grep "搜索" --json` | 找到搜索按钮的 ref |
+| 7 | `bash scripts/kylin-browser-ticket-booking-cli.sh click @<ref> --json` | 点击搜索按钮 |
+| 8 | `bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-interactive --json` | 检查搜索结果是否正常加载 |
+| 9 | `bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-grep "车型" --json` | 查找车型筛选区域，找到"高铁(G/C)"的 ref |
+| 10 | `bash scripts/kylin-browser-ticket-booking-cli.sh click @<ref> --json` | 勾选"高铁(G/C)" |
+| 11 | `bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-grep "出发时间" --json` | 查找出发时间筛选区域，找到"12:00-18:00"的 ref |
+| 12 | `bash scripts/kylin-browser-ticket-booking-cli.sh click @<ref> --json` | 选择"12:00-18:00"时间区间（下午2点映射为此区间） |
+| 13 | `bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-interactive --json` | 查看筛选后的车次列表，确认车次号以 G/C 开头，找到最接近14:00的车次"订"按钮的 ref |
+| 14 | `bash scripts/kylin-browser-ticket-booking-cli.sh click @<ref> --json` | 点击"订"按钮 |
+| 15 | `bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-interactive --json` | 进入选座页面，找到"二等座"对应的"预订"按钮的 ref |
+| 16 | `bash scripts/kylin-browser-ticket-booking-cli.sh click @<ref> --json` | 点击"预订" |
+| 17 | `bash scripts/kylin-browser-ticket-booking-cli.sh snapshot-interactive --json` | 确认是否出现"乘客信息"页面，告知用户自行填写乘客信息并支付 |

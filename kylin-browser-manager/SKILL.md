@@ -38,6 +38,7 @@ names:
 | 打开麒麟浏览器的书签/收藏夹页面 | `open-bookmarks` |
 | 打开麒麟浏览器的设置页面 | `open-settings` |
 | 在麒麟浏览器里新建标签页 | `tab-new` |
+| 列出麒麟浏览器的所有标签页 | `tab-list` |
 | 关闭麒麟浏览器的指定标签页 | `tab-close <tab_id>` |
 | 切换到麒麟浏览器的指定标签页 | `tab-switch <tab_id>` |
 | 在麒麟浏览器里前进 | `nav-forward` |

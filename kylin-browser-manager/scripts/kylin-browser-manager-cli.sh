@@ -23,6 +23,7 @@ ${PROG}: 麒麟浏览器本地 CLI 封装
   open-bookmarks                          打开书签页面
   open-settings                           打开设置页面
   tab-new                                 新建标签页
+  tab-list                                列出所有标签页
   tab-close <tab_id>                      关闭指定标签页
   tab-switch <tab_id>                     切换到指定标签页
   nav-forward                             前进
@@ -112,6 +113,7 @@ run_agent() {
 
 browser_open() {
   local url="${1:-}"
+  run_agent close --all
   if [[ -n "$url" ]]; then
     run_agent open "$url"
   else
@@ -232,6 +234,16 @@ main() {
         json_success "tab-new" "已在麒麟浏览器中新建标签页"
       else
         json_error "新建标签页失败" "${AGENT_OUTPUT:-agent-browser 返回错误}"
+      fi
+      exit $AGENT_CODE
+      ;;
+
+    tab-list)
+      run_agent tab list
+      if [[ $AGENT_CODE -eq 0 ]]; then
+        json_success "tab-list" "${AGENT_OUTPUT}"
+      else
+        json_error "获取标签页列表失败" "${AGENT_OUTPUT:-agent-browser 返回错误}"
       fi
       exit $AGENT_CODE
       ;;

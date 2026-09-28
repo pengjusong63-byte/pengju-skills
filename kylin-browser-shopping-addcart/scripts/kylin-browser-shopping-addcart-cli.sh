@@ -15,6 +15,7 @@ ${PROG}: 电商购物车自动化 CLI 封装
   open-shop <platform>             打开麒麟浏览器并导航到指定电商平台
   snapshot                         获取页面快照
   snapshot-interactive             获取可交互元素快照
+  find-ref <text>                  从可交互元素中搜索文本并返回对应 ref（grep 模式）
   click <ref>                      点击页面元素
   fill <ref> <text>                在文本框中输入文本
   press <key>                      模拟按键
@@ -300,6 +301,38 @@ main() {
         exit 1
       fi
       exit $AGENT_CODE
+      ;;
+
+    find-ref)
+      if [[ ${#args[@]} -eq 0 ]]; then
+        json_error "missing_argument" "缺少参数 text" "用法: bash scripts/${PROG}.sh find-ref <text> --json" "false"
+        exit 2
+      fi
+      local search_text="${args[*]}"
+      if $dry_run; then
+        dry_run_msg "find-ref" "将在页面可交互元素中搜索「${search_text}」并返回 ref"
+        exit 10
+      fi
+      run_agent snapshot -i
+      if [[ $AGENT_CODE -ne 0 ]]; then
+        json_error "find_ref_failed" "获取可交互元素快照失败" "${AGENT_OUTPUT:-agent-browser 返回错误}" "true"
+        exit 1
+      fi
+      # 从 snapshot -i 输出中提取匹配行，取出第一个 [ref=XXX] 并去掉方括号
+      local matched_ref
+      matched_ref=$(echo "$AGENT_OUTPUT" \
+        | grep -i "$search_text" \
+        | grep -o '\[ref=[^]]*\]' \
+        | head -1 \
+        | sed 's/\[ref=//;s/\]//')
+      local match_count
+      match_count=$(echo "$AGENT_OUTPUT" | grep -i "$search_text" | grep -c '\[ref=[^]]*\]' || true)
+      if [[ -z "$matched_ref" ]]; then
+        json_error "ref_not_found" "未找到包含「${search_text}」的可交互元素" "请检查页面是否存在该元素" "false"
+        exit 3
+      fi
+      json_success "find-ref" "找到元素 ref=${matched_ref}（匹配 ${match_count} 个元素，取第一个），搜索文本：${search_text}"
+      exit 0
       ;;
 
     press)

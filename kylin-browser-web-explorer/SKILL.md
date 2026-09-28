@@ -84,7 +84,6 @@ bash scripts/kylin-browser-web-explorer-cli.sh <子命令> [参数] --json
 ## 输出说明
 
 - 直接输出搜索结果中提取的链接信息，禁止生成总结、摘要或格式化报告。
-- 输出任务用时 X 秒。
 
 ## 注意事项
 
